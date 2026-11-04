@@ -21,6 +21,7 @@ async def test_playwright():
 
     return {"title": title}
 
+
 @app.get("/scrape")
 async def scrape(symbol: str = Query(..., description="TICKER")):
     """
@@ -32,9 +33,7 @@ async def scrape(symbol: str = Query(..., description="TICKER")):
     Returns:
         dict: Скрэйпнутые данные в виде JSON.
     """
-    # Формируем URL на основе параметра
-    target_url = f"https://www.tradingview.com/chart/?symbol={symbol}"
-    # print(target_url)
+    ticker_list = symbol.split(',')
 
     playwright_ws_url = os.getenv("PLAYWRIGHT_WS_URL", "ws://localhost:3000")
 
@@ -42,33 +41,43 @@ async def scrape(symbol: str = Query(..., description="TICKER")):
         # Подключаемся к Playwright серверу
         browser = await p.chromium.connect(playwright_ws_url)
 
-        page = await browser.new_page()
-        await page.set_extra_http_headers({
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
-        })
+        pay_load = {}
 
-        await page.goto(target_url, timeout=30000, wait_until="domcontentloaded")
-        title = await page.title()
-        content = await page.content()
+        for ticker in ticker_list:
 
-        try:
-            price_element = page.locator('.price-qWcO4bp9')
-            price = await price_element.inner_text()
-            status = "success"
-        except Exception as e:
-            return {
-                'status': 'error',
-                'message': str(e),
+            # Формируем URL на основе параметра
+            target_url = f"https://www.tradingview.com/chart/?symbol={ticker}"
+
+            page = await browser.new_page()
+            await page.set_extra_http_headers({
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+            })
+
+            await page.goto(target_url, timeout=30000, wait_until="domcontentloaded")
+            title = await page.title()
+            content = await page.content()
+
+            try:
+                # price_element = page.locator('.price-qWcO4bp9.secondaryPriceValue-BSF4XTsE')
+                price_element = page.locator('[data-qa-id="value"][class*="secondaryPriceValue"]')
+                price = await price_element.inner_text()
+                status = "success"
+            except Exception as e:
+                return {
+                    'status': 'error',
+                    'message': str(e),
+                    "url": target_url,
+                    "title": title,
+                }
+
+            pay_load[ticker] = {
                 "title": title,
-                # 'page_source': content,
+                "url": target_url,
+                "price": price,
             }
 
         await browser.close()
 
     return {
         'status': status,
-        "title": title,
-        "url": target_url,
-        "price": price,
-        # 'page_source': content,
-    }
+    } | pay_load
